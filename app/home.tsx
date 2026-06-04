@@ -2,22 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { BottomNavigation, Button, Chip, Dialog, IconButton, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 
-import { HistorySearchItem } from '@/components/home/history-search-item';
+import { CreateRecipeModal } from '@/components/home/create-recipe-modal';
 import { HomeScreenShell } from '@/components/home/home-screen-shell';
 import { RecipePreviewCard } from '@/components/home/recipe-preview-card';
 import { SectionHeader } from '@/components/home/section-header';
 import { TaggedRecipeItem } from '@/components/home/tagged-recipe-item';
-import { createGroup, getGroupRecipes, getGroups, getLatestRecipes, getPopularRecipes, getRecipeById, getTopTags, searchRecipes, type GroupRecipeItem, type LatestRecipeCardData, type RecipeDetail, type RecipeGroup, type SearchRecipeItem, type TopTagsRecipeItem } from '@/services/recipes';
+import { createGroup, getGroupRecipes, getGroups, getLatestRecipes, getPopularRecipes, getRecipeById, getRecipeHistory, getTopTags, searchRecipes, type GroupRecipeItem, type LatestRecipeCardData, type RecipeDetail, type RecipeGroup, type SearchRecipeItem, type TopTagsRecipeItem } from '@/services/recipes';
 
 type RouteKey = 'library' | 'history' | 'explore';
 
 
-const historySearches = [
-  { query: 'receta con pollo y arroz', ago: 'Hace 12 min', kind: 'Búsqueda' },
-  { query: 'postres sin horno', ago: 'Hace 1 h', kind: 'Exploración' },
-  { query: 'salsa para pasta casera', ago: 'Ayer', kind: 'Búsqueda' },
-  { query: 'desayunos saludables', ago: 'Ayer', kind: 'Exploración' },
-];
 
 const exploreSections = {
   recentFallback: [
@@ -76,6 +70,7 @@ const LibraryScene = () => {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeDetail | null>(null);
 
+  const [isCreateRecipeVisible, setIsCreateRecipeVisible] = useState(false);
   const [isCreateGroupVisible, setIsCreateGroupVisible] = useState(false);
   const [groupFormName, setGroupFormName] = useState('');
   const [groupFormDescription, setGroupFormDescription] = useState('');
@@ -187,8 +182,7 @@ const LibraryScene = () => {
         <Button
           mode="outlined"
           icon="chef-hat"
-          disabled
-          onPress={() => {}}
+          onPress={() => setIsCreateRecipeVisible(true)}
           style={styles.actionButton}
           contentStyle={styles.actionButtonContent}
           labelStyle={styles.actionButtonLabel}
@@ -294,6 +288,16 @@ const LibraryScene = () => {
           )}
         </>
       )}
+
+      <CreateRecipeModal
+        visible={isCreateRecipeVisible}
+        onDismiss={() => setIsCreateRecipeVisible(false)}
+        onSuccess={async () => {
+          const data = await getGroups(20, 4).catch(() => [] as typeof groups);
+          setGroups(data);
+          setGroupsPage(0);
+        }}
+      />
 
       {/* Dialog: crear grupo */}
       <Portal>
@@ -451,20 +455,153 @@ const LibraryScene = () => {
   );
 };
 
+const HISTORY_LIMIT = 10;
+
 const HistoryScene = () => {
+  const theme = useTheme();
+  const { height: screenHeight } = useWindowDimensions();
+
+  const [recipes, setRecipes] = useState<LatestRecipeCardData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentOffset, setCurrentOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  const [isDetailVisible, setIsDetailVisible] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [selectedRecipe, setSelectedRecipe] = useState<RecipeDetail | null>(null);
+
+  const loadHistory = useCallback(async (offset: number, append: boolean) => {
+    if (append) setIsLoadingMore(true); else setIsLoading(true);
+    setError(null);
+    try {
+      const data = await getRecipeHistory(HISTORY_LIMIT, offset);
+      setRecipes(prev => append ? [...prev, ...data] : data);
+      setCurrentOffset(offset + data.length);
+      setHasMore(data.length === HISTORY_LIMIT);
+    } catch {
+      setError('No se pudo cargar el historial.');
+    } finally {
+      if (append) setIsLoadingMore(false); else setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadHistory(0, false); }, [loadHistory]);
+
+  const openRecipeDetail = async (recipeId: string) => {
+    setIsDetailVisible(true);
+    setIsLoadingDetail(true);
+    setDetailError(null);
+    setSelectedRecipe(null);
+    try {
+      const recipe = await getRecipeById(recipeId);
+      setSelectedRecipe(recipe);
+    } catch {
+      setDetailError('No se pudo cargar el detalle de la receta.');
+    } finally {
+      setIsLoadingDetail(false);
+    }
+  };
+
   return (
     <HomeScreenShell
       title="Historial"
-      subtitle="Últimas búsquedas relacionadas con tus recetas"
+      subtitle="Recetas que has visto recientemente"
       searchPlaceholder="Buscar en historial"
     >
-      <SectionHeader title="Busquedas recientes" subtitle="Lo último que consultaste" />
+      <SectionHeader title="Vistas recientemente" />
 
-      <View style={styles.historyList}>
-        {historySearches.map((item) => (
-          <HistorySearchItem key={`${item.query}-${item.ago}`} {...item} />
-        ))}
-      </View>
+      {isLoading ? (
+        <View style={styles.loadingState}>
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <Text variant="bodyMedium" style={styles.loadingText}>Cargando historial...</Text>
+        </View>
+      ) : error ? (
+        <Text variant="bodySmall" style={styles.errorText}>{error}</Text>
+      ) : recipes.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text variant="titleMedium" style={styles.emptyTitle}>Sin historial aún</Text>
+          <Text variant="bodyMedium" style={styles.emptySubtitle}>
+            Las recetas que consultes aparecerán aquí
+          </Text>
+        </View>
+      ) : (
+        <>
+          <View style={styles.taggedList}>
+            {recipes.map(item => (
+              <TaggedRecipeItem
+                key={item.id}
+                title={item.title}
+                creator={item.creator}
+                tag={item.badge}
+                thumbnailUrl={item.thumbnailUrl}
+                onPress={() => openRecipeDetail(item.id)}
+              />
+            ))}
+          </View>
+
+          {hasMore && (
+            <Button
+              mode="outlined"
+              loading={isLoadingMore}
+              disabled={isLoadingMore}
+              onPress={() => loadHistory(currentOffset, true)}
+              style={styles.loadMoreBtn}
+              icon="chevron-down"
+            >
+              Cargar más
+            </Button>
+          )}
+        </>
+      )}
+
+      <Portal>
+        <Dialog visible={isDetailVisible} onDismiss={() => setIsDetailVisible(false)} style={styles.detailDialog}>
+          <Dialog.Title>Detalle de receta</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={{ maxHeight: screenHeight * 0.55 }} showsVerticalScrollIndicator>
+              {isLoadingDetail ? (
+                <View style={styles.loadingState}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text variant="bodyMedium" style={styles.loadingText}>Cargando detalle...</Text>
+                </View>
+              ) : null}
+              {detailError ? <Text variant="bodyMedium">{detailError}</Text> : null}
+              {selectedRecipe ? (
+                <>
+                  <Text variant="titleLarge" style={styles.detailTitle}>{selectedRecipe.name}</Text>
+                  <Text variant="bodySmall" style={styles.detailMeta}>Origen: {selectedRecipe.origin}</Text>
+                  <Text variant="bodySmall" style={styles.detailMeta}>
+                    Tags: {selectedRecipe.tags.length ? selectedRecipe.tags.join(', ') : 'Sin tags'}
+                  </Text>
+                  {selectedRecipe.description ? (
+                    <Text variant="bodyMedium" style={styles.detailParagraph}>{selectedRecipe.description}</Text>
+                  ) : null}
+                  <Text variant="titleMedium" style={styles.detailSectionTitle}>Ingredientes</Text>
+                  {selectedRecipe.ingredients.length ? (
+                    selectedRecipe.ingredients.map(ing => (
+                      <Text key={`${ing.name}-${ing.amount}`} variant="bodySmall" style={styles.detailLine}>
+                        - {ing.name}: {ing.amount}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text variant="bodySmall" style={styles.detailLine}>Sin ingredientes disponibles.</Text>
+                  )}
+                  <Text variant="titleMedium" style={styles.detailSectionTitle}>Instrucciones</Text>
+                  <Text variant="bodySmall" style={styles.detailParagraph}>
+                    {selectedRecipe.instructions || 'Sin instrucciones disponibles.'}
+                  </Text>
+                </>
+              ) : null}
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setIsDetailVisible(false)}>Cerrar</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </HomeScreenShell>
   );
 };
@@ -1057,6 +1194,11 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     opacity: 0.65,
     textAlign: 'center',
+  },
+  loadMoreBtn: {
+    borderRadius: 18,
+    alignSelf: 'center',
+    marginTop: 4,
   },
   // Action buttons row
   actionRow: {
