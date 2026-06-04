@@ -1,18 +1,22 @@
-import React from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Searchbar, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { UserProfileModal } from '@/components/home/user-profile-modal';
 
 type HomeScreenShellProps = {
   title: string;
   subtitle: string;
   searchPlaceholder: string;
+  searchValue?: string;
+  onSearchChange?: (text: string) => void;
   children: React.ReactNode;
 };
 
-export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, children }: HomeScreenShellProps) => {
+export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, searchValue, onSearchChange, children }: HomeScreenShellProps) => {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const [isProfileVisible, setIsProfileVisible] = useState(false);
 
   return (
     <ScrollView
@@ -31,18 +35,23 @@ export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, children }
             {subtitle}
           </Text>
         </View>
-        <Avatar.Text
-          size={44}
-          label="AT"
-          style={[styles.avatar, { backgroundColor: theme.colors.primaryContainer }]}
-          labelStyle={{ color: theme.colors.onPrimaryContainer, fontWeight: '700' }}
-        />
+        <Pressable
+          onPress={() => setIsProfileVisible(true)}
+          style={({ pressed }) => pressed ? styles.avatarPressed : null}
+        >
+          <Avatar.Text
+            size={44}
+            label="AT"
+            style={[styles.avatar, { backgroundColor: theme.colors.primaryContainer }]}
+            labelStyle={{ color: theme.colors.onPrimaryContainer, fontWeight: '700' }}
+          />
+        </Pressable>
       </View>
 
       <Searchbar
         placeholder={searchPlaceholder}
-        value=""
-        onChangeText={() => {}}
+        value={searchValue ?? ''}
+        onChangeText={onSearchChange ?? (() => {})}
         style={[styles.searchbar, { backgroundColor: theme.colors.elevation.level2 }]}
         inputStyle={styles.searchInput}
         iconColor={theme.colors.onSurfaceVariant}
@@ -50,6 +59,11 @@ export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, children }
       />
 
       {children}
+
+      <UserProfileModal
+        visible={isProfileVisible}
+        onDismiss={() => setIsProfileVisible(false)}
+      />
     </ScrollView>
   );
 };
@@ -88,6 +102,9 @@ const styles = StyleSheet.create({
   },
   avatar: {
     borderRadius: 22,
+  },
+  avatarPressed: {
+    opacity: 0.75,
   },
   searchbar: {
     borderRadius: 22,
