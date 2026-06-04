@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Searchbar, Text, useTheme } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type HomeScreenShellProps = {
   title: string;
@@ -11,16 +12,17 @@ type HomeScreenShellProps = {
 
 export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, children }: HomeScreenShellProps) => {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <ScrollView
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(16, insets.top + 8) }]}
       style={{ backgroundColor: theme.colors.background }}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.sceneBackgroundAccent} />
 
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, { marginTop: 2 }] }>
         <View style={styles.headerTextBlock}>
           <Text variant="headlineSmall" style={styles.pageTitle}>
             {title}

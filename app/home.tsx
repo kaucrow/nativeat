@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { BottomNavigation, Button, Chip, useTheme } from 'react-native-paper';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { BottomNavigation, Button, Chip, Text, useTheme } from 'react-native-paper';
 
 import { HistorySearchItem } from '@/components/home/history-search-item';
 import { HomeScreenShell } from '@/components/home/home-screen-shell';
@@ -8,6 +8,7 @@ import { LibraryRecipeCard } from '@/components/home/library-recipe-card';
 import { RecipePreviewCard } from '@/components/home/recipe-preview-card';
 import { SectionHeader } from '@/components/home/section-header';
 import { TaggedRecipeItem } from '@/components/home/tagged-recipe-item';
+import { getLatestRecipes, type LatestRecipeCardData } from '@/services/recipes';
 
 type RouteKey = 'library' | 'history' | 'explore';
 
@@ -26,7 +27,7 @@ const historySearches = [
 ];
 
 const exploreSections = {
-  recent: [
+  recentFallback: [
     { title: 'Tostadas de aguacate', creator: 'Chef Luna', tag: 'Desayuno' },
     { title: 'Bowl mediterráneo', creator: 'Nora Cocina', tag: 'Saludable' },
     { title: 'Pan de plátano', creator: 'Majo Bakes', tag: 'Postre' },
@@ -100,6 +101,47 @@ const HistoryScene = () => {
 };
 
 const ExploreScene = () => {
+  const theme = useTheme();
+  const [latestRecipes, setLatestRecipes] = useState<LatestRecipeCardData[]>([]);
+  const [isLoadingLatest, setIsLoadingLatest] = useState(true);
+  const [latestError, setLatestError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLatestRecipes = async () => {
+      try {
+        setIsLoadingLatest(true);
+        setLatestError(null);
+        const recipes = await getLatestRecipes(4);
+
+        if (isMounted) {
+          setLatestRecipes(recipes);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setLatestRecipes(exploreSections.recentFallback.map((item, index) => ({
+            id: `fallback-${index}`,
+            title: item.title,
+            creator: item.creator,
+            badge: item.tag,
+          })));
+          setLatestError('No se pudo cargar el backend, mostrando datos de ejemplo.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingLatest(false);
+        }
+      }
+    };
+
+    loadLatestRecipes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <HomeScreenShell
       title="Explorar"
@@ -108,11 +150,30 @@ const ExploreScene = () => {
     >
       <SectionHeader title="Más recientes" subtitle="Contenido nuevo para empezar" />
 
-      <View style={styles.compactGrid}>
-        {exploreSections.recent.map((item) => (
-          <RecipePreviewCard key={item.title} title={item.title} creator={item.creator} badge={item.tag} variant="compact" />
-        ))}
-      </View>
+      {isLoadingLatest ? (
+        <View style={styles.loadingState}>
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <Text variant="bodyMedium" style={styles.loadingText}>
+            Cargando recetas recientes...
+          </Text>
+        </View>
+      ) : (
+        <>
+          {latestError ? <Text variant="bodySmall" style={styles.errorText}>{latestError}</Text> : null}
+          <View style={styles.compactGrid}>
+            {latestRecipes.map((item) => (
+              <RecipePreviewCard
+                key={item.id}
+                title={item.title}
+                creator={item.creator}
+                badge={item.badge}
+                thumbnailUrl={item.thumbnailUrl}
+                variant="compact"
+              />
+            ))}
+          </View>
+        </>
+      )}
 
       <SectionHeader title="Más vistos" subtitle="Lo que más está llamando la atención" />
 
@@ -207,6 +268,18 @@ const styles = StyleSheet.create({
   horizontalList: {
     gap: 12,
     paddingRight: 4,
+  },
+  loadingState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  loadingText: {
+    opacity: 0.72,
+  },
+  errorText: {
+    opacity: 0.72,
   },
   tagRow: {
     flexDirection: 'row',
