@@ -4,9 +4,9 @@ import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, Divider, Portal, Text, TextInput, useTheme } from 'react-native-paper';
-import { changeUserEmail, deleteUserAccount, getUserProfile, type UserProfile } from '@/services/user';
+import { changeUserEmail, changeUsername, deleteUserAccount, getUserProfile, type UserProfile } from '@/services/user';
 
-type ModalView = 'profile' | 'changeEmail' | 'deleteConfirm';
+type ModalView = 'profile' | 'changeEmail' | 'changeUsername' | 'deleteConfirm';
 
 type UserProfileModalProps = {
   visible: boolean;
@@ -26,6 +26,10 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
   const [isChangingEmail, setIsChangingEmail] = useState(false);
   const [changeEmailError, setChangeEmailError] = useState<string | null>(null);
   const [changeEmailSuccess, setChangeEmailSuccess] = useState(false);
+
+  const [newUsername, setNewUsername] = useState('');
+  const [isChangingUsername, setIsChangingUsername] = useState(false);
+  const [changeUsernameError, setChangeUsernameError] = useState<string | null>(null);
 
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -49,6 +53,8 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
       setNewEmail('');
       setChangeEmailError(null);
       setChangeEmailSuccess(false);
+      setNewUsername('');
+      setChangeUsernameError(null);
       setDeleteError(null);
       loadProfile();
     }
@@ -59,6 +65,8 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
     setNewEmail('');
     setChangeEmailError(null);
     setChangeEmailSuccess(false);
+    setNewUsername('');
+    setChangeUsernameError(null);
     setDeleteError(null);
     onDismiss();
   };
@@ -75,6 +83,26 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
       setChangeEmailError('No se pudo iniciar el cambio de email. Intenta de nuevo.');
     } finally {
       setIsChangingEmail(false);
+    }
+  };
+
+  const handleChangeUsername = async () => {
+    const username = newUsername.trim();
+    if (!username || username === profile?.username) return;
+    setIsChangingUsername(true);
+    setChangeUsernameError(null);
+    try {
+      await changeUsername(username);
+      await loadProfile();
+      setNewUsername('');
+      setView('profile');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      setChangeUsernameError(
+        msg.includes('409') ? 'Ese nombre de usuario ya está en uso.' : 'No se pudo cambiar el nombre de usuario. Intenta de nuevo.'
+      );
+    } finally {
+      setIsChangingUsername(false);
     }
   };
 
@@ -95,6 +123,7 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
   const titleMap: Record<ModalView, string> = {
     profile: 'Mi perfil',
     changeEmail: 'Cambiar email',
+    changeUsername: 'Cambiar nombre de usuario',
     deleteConfirm: 'Eliminar cuenta',
   };
 
@@ -171,6 +200,15 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
                   <View style={styles.actionsCol}>
                     <Button
                       mode="outlined"
+                      icon="account-edit-outline"
+                      onPress={() => { setNewUsername(profile.username); setView('changeUsername'); }}
+                      style={styles.actionBtn}
+                      contentStyle={styles.actionBtnContent}
+                    >
+                      Cambiar nombre de usuario
+                    </Button>
+                    <Button
+                      mode="outlined"
                       icon="email-edit-outline"
                       onPress={() => setView('changeEmail')}
                       style={styles.actionBtn}
@@ -229,6 +267,27 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
             </View>
           )}
 
+          {/* ── Cambiar username ── */}
+          {view === 'changeUsername' && (
+            <View style={styles.subView}>
+              <Text variant="bodyMedium" style={styles.mutedText}>
+                Elige un nuevo nombre de usuario. Debe ser distinto al actual.
+              </Text>
+              <TextInput
+                mode="outlined"
+                label="Nuevo nombre de usuario"
+                value={newUsername}
+                onChangeText={setNewUsername}
+                autoCapitalize="none"
+                maxLength={30}
+                left={<TextInput.Icon icon="account-outline" />}
+              />
+              {changeUsernameError ? (
+                <Text variant="bodySmall" style={{ color: theme.colors.error }}>{changeUsernameError}</Text>
+              ) : null}
+            </View>
+          )}
+
           {/* ── Confirmar borrado ── */}
           {view === 'deleteConfirm' && (
             <View style={styles.subView}>
@@ -255,22 +314,22 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
           )}
 
           {view === 'changeEmail' && !changeEmailSuccess && (
-            <>
-              <Button
-                onPress={() => { setView('profile'); setNewEmail(''); setChangeEmailError(null); }}
-                disabled={isChangingEmail}
-              >
-                Volver
-              </Button>
-              <Button
-                mode="contained"
-                loading={isChangingEmail}
-                disabled={isChangingEmail || !newEmail.trim().includes('@')}
-                onPress={handleChangeEmail}
-              >
-                Enviar código
-              </Button>
-            </>
+            <Button
+              onPress={() => { setView('profile'); setNewEmail(''); setChangeEmailError(null); }}
+              disabled={isChangingEmail}
+            >
+              Volver
+            </Button>
+          )}
+          {view === 'changeEmail' && !changeEmailSuccess && (
+            <Button
+              mode="contained"
+              loading={isChangingEmail}
+              disabled={isChangingEmail || !newEmail.trim().includes('@')}
+              onPress={handleChangeEmail}
+            >
+              Enviar código
+            </Button>
           )}
 
           {view === 'changeEmail' && changeEmailSuccess && (
@@ -279,25 +338,44 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
             </Button>
           )}
 
+          {view === 'changeUsername' && (
+            <Button
+              onPress={() => { setView('profile'); setNewUsername(''); setChangeUsernameError(null); }}
+              disabled={isChangingUsername}
+            >
+              Volver
+            </Button>
+          )}
+          {view === 'changeUsername' && (
+            <Button
+              mode="contained"
+              loading={isChangingUsername}
+              disabled={isChangingUsername || !newUsername.trim() || newUsername.trim() === profile?.username}
+              onPress={handleChangeUsername}
+            >
+              Guardar
+            </Button>
+          )}
+
           {view === 'deleteConfirm' && (
-            <>
-              <Button
-                onPress={() => { setView('profile'); setDeleteError(null); }}
-                disabled={isDeletingAccount}
-              >
-                Cancelar
-              </Button>
-              <Button
-                mode="contained"
-                buttonColor={theme.colors.error}
-                textColor={theme.colors.onError}
-                loading={isDeletingAccount}
-                disabled={isDeletingAccount}
-                onPress={handleDeleteAccount}
-              >
-                Eliminar
-              </Button>
-            </>
+            <Button
+              onPress={() => { setView('profile'); setDeleteError(null); }}
+              disabled={isDeletingAccount}
+            >
+              Cancelar
+            </Button>
+          )}
+          {view === 'deleteConfirm' && (
+            <Button
+              mode="contained"
+              buttonColor={theme.colors.error}
+              textColor={theme.colors.onError}
+              loading={isDeletingAccount}
+              disabled={isDeletingAccount}
+              onPress={handleDeleteAccount}
+            >
+              Eliminar
+            </Button>
           )}
         </Dialog.Actions>
       </Dialog>

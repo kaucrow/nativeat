@@ -231,6 +231,7 @@ export type RecipeGroup = {
   groupId: string;
   groupName: string;
   recipes: GroupRecipeItem[];
+  totalRecipes: number;
 };
 
 const normalizeGroupRecipeItem = (item: GroupRecipeRawItem): GroupRecipeItem => ({
@@ -240,6 +241,28 @@ const normalizeGroupRecipeItem = (item: GroupRecipeRawItem): GroupRecipeItem => 
   tags: item.tags ?? [],
   thumbnailUrl: resolveImageUrl(item.thumbnailUrl ?? item.thumbnail_url),
 });
+
+export type CreatedRecipesResponse = {
+  recipes: GroupRecipeItem[];
+  totalItems: number;
+};
+
+export const getCreatedRecipes = async (limit = 4, offset = 0): Promise<CreatedRecipesResponse> => {
+  if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+
+  const response = await fetch(`${BACKEND_URL}/recipes/created?limit=${limit}&offset=${offset}`);
+  if (!response.ok) throw new Error(`Failed to fetch created recipes (${response.status})`);
+
+  const data = (await response.json()) as {
+    meta?: { totalItems?: number };
+    recipes?: GroupRecipeRawItem[];
+  };
+
+  return {
+    recipes: (data.recipes ?? []).map(normalizeGroupRecipeItem),
+    totalItems: data.meta?.totalItems ?? 0,
+  };
+};
 
 export const getTagsAutocomplete = async (query: string, limit = 6): Promise<string[]> => {
   if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
@@ -266,28 +289,23 @@ export const createRecipe = async (payload: CreateRecipePayload): Promise<{ id: 
   formData.append('instructions', payload.instructions);
   if (payload.description) formData.append('description', payload.description);
 
-  // ingredients: Blob with application/json type (equivalent to curl's ;type=application/json)
+  // ingredients & tags: send as plain JSON strings (server parses them with json.loads)
   if (payload.ingredients && Object.keys(payload.ingredients).length > 0) {
-    const blob = new Blob([JSON.stringify(payload.ingredients)], { type: 'application/json' });
-    formData.append('ingredients', blob);
+    formData.append('ingredients', JSON.stringify(payload.ingredients));
   }
-
-  // tags: JSON array string as required by the API
   if (payload.tags && payload.tags.length > 0) {
     formData.append('tags', JSON.stringify(payload.tags));
   }
 
-  // image: fetch the local URI as a Blob (React Native supports file:// in fetch)
+  // image: React Native file object format { uri, name, type } — NOT a Blob.
+  // Blobs are not serialized into multipart by RN's fetch and cause "Network request failed".
   if (payload.imageUri) {
     const uri = payload.imageUri;
     const filename = uri.split('/').pop() ?? 'recipe.jpg';
-    try {
-      const imageResponse = await fetch(uri);
-      const imageBlob = await imageResponse.blob();
-      formData.append('image', imageBlob, filename);
-    } catch (e) {
-      console.warn('[createRecipe] image read failed, skipping:', e);
-    }
+    const ext = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const mimeType = ({ png: 'image/png', gif: 'image/gif', webp: 'image/webp' } as Record<string, string>)[ext] ?? 'image/jpeg';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    formData.append('image', { uri, name: filename, type: mimeType } as any);
   }
 
   const response = await fetch(`${BACKEND_URL}/recipes`, {
@@ -301,6 +319,17 @@ export const createRecipe = async (payload: CreateRecipePayload): Promise<{ id: 
     throw new Error(`Failed to create recipe (${response.status}): ${detail}`);
   }
   return (await response.json()) as { id: string };
+};
+
+export const deleteRecipe = async (recipeId: string): Promise<void> => {
+  if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+  if (!recipeId) throw new Error('La receta no tiene un ID válido.');
+  const response = await fetch(`${BACKEND_URL}/recipes/${recipeId}`, { method: 'DELETE' });
+  if (!response.ok) {
+    let detail = '';
+    try { detail = await response.text(); } catch { /* ignore */ }
+    throw new Error(`Failed to delete recipe (${response.status}): ${detail}`);
+  }
 };
 
 export const addRecipeToGroup = async (groupId: string, recipeId: string): Promise<void> => {
@@ -329,21 +358,44 @@ export const createGroup = async (name: string, description?: string | null): Pr
   return (await response.json()) as { id: string };
 };
 
-export const getGroups = async (groupsLimit = 20, recipesLimit = 4): Promise<RecipeGroup[]> => {
+export const getGroups = async (groupsLimit = 4, recipesLimit = 4, groupsOffset = 0): Promise<RecipeGroup[]> => {
   if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
 
-  const response = await fetch(`${BACKEND_URL}/groups?groups_limit=${groupsLimit}&recipes_limit=${recipesLimit}`);
+  const response = await fetch(
+    `${BACKEND_URL}/groups?groups_limit=${groupsLimit}&groups_offset=${groupsOffset}&recipes_limit=${recipesLimit}`
+  );
   if (!response.ok) throw new Error(`Failed to fetch groups (${response.status})`);
 
   const data = (await response.json()) as {
-    groups: Array<{ group_id: string; group_name: string; recipes: GroupRecipeRawItem[] }>;
+    groups: Array<{
+      id?: string;
+      group_id?: string;
+      groupId?: string;
+      group_name?: string;
+      groupName?: string;
+      recipes: GroupRecipeRawItem[];
+      total_recipes?: number;
+      totalRecipes?: number;
+    }>;
   };
 
   return (data.groups ?? []).map(g => ({
-    groupId: g.group_id,
-    groupName: g.group_name,
+    groupId: g.group_id ?? g.groupId ?? g.id ?? '',
+    groupName: g.group_name ?? g.groupName ?? 'Grupo',
     recipes: (g.recipes ?? []).map(normalizeGroupRecipeItem),
+    totalRecipes: g.total_recipes ?? g.totalRecipes ?? 0,
   }));
+};
+
+export const deleteGroup = async (groupId: string): Promise<void> => {
+  if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+  if (!groupId) throw new Error('El grupo no tiene un ID válido.');
+  const response = await fetch(`${BACKEND_URL}/groups/${groupId}`, { method: 'DELETE' });
+  if (!response.ok) {
+    let detail = '';
+    try { detail = await response.text(); } catch { /* ignore */ }
+    throw new Error(`Failed to delete group (${response.status}): ${detail}`);
+  }
 };
 
 export const getGroupRecipes = async (groupId: string, recipesLimit = 8, offset = 0): Promise<GroupRecipeItem[]> => {
