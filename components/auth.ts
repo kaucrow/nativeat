@@ -97,12 +97,12 @@ export const loginUser = async (data: LoginFormData) => {
   }
 };
 
-export const verifyUserToken = async (token: string) => {
+export const verifyAccount = async (code: string) => {
   try {
-    const response = await fetch(`${BACKEND_URL}/user/verify`, {
+    const response = await fetch(`${BACKEND_URL}/user/verify-account`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ code }),
     });
     return await handleApiResponse(response);
   } catch (err) {

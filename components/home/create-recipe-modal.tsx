@@ -114,7 +114,11 @@ export const CreateRecipeModal = ({ visible, onDismiss, onSuccess }: CreateRecip
         imageUri,
       });
       if (result.id) {
-        try { await addRecipeToGroup(selectedGroupId, result.id); } catch { /* recipe created, group add failed */ }
+        try {
+          await addRecipeToGroup(selectedGroupId, result.id);
+        } catch (groupErr) {
+          console.error('[addRecipeToGroup] failed:', groupErr instanceof Error ? groupErr.message : groupErr);
+        }
       }
       resetForm(); onSuccess?.(); onDismiss();
     } catch (err) {

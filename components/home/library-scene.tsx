@@ -84,7 +84,19 @@ export const LibraryScene = () => {
     setGroupsError(null);
     try {
       const data = await getGroups(GROUPS_PER_PAGE, 4, page * GROUPS_PER_PAGE);
-      setGroups(data);
+      // The /groups endpoint returns empty recipes; fetch each group's recipes
+      // (and real count) from the dedicated /groups/{id}/recipes endpoint.
+      const withRecipes = await Promise.all(
+        data.map(async (group) => {
+          try {
+            const { recipes, totalItems } = await getGroupRecipes(group.groupId, 4, 0);
+            return { ...group, recipes, totalRecipes: totalItems };
+          } catch {
+            return group;
+          }
+        })
+      );
+      setGroups(withRecipes);
       setGroupsPage(page);
       setHasMoreGroups(data.length === GROUPS_PER_PAGE);
     } catch {
@@ -149,7 +161,7 @@ export const LibraryScene = () => {
   const loadGroupDetailPage = useCallback(async (groupId: string, page: number) => {
     setIsLoadingGroupDetail(true);
     try {
-      const recipes = await getGroupRecipes(groupId, GROUP_DETAIL_LIMIT, (page - 1) * GROUP_DETAIL_LIMIT);
+      const { recipes } = await getGroupRecipes(groupId, GROUP_DETAIL_LIMIT, (page - 1) * GROUP_DETAIL_LIMIT);
       setGroupDetailRecipes(recipes);
       setGroupDetailPage(page);
       setGroupDetailHasMore(recipes.length === GROUP_DETAIL_LIMIT);

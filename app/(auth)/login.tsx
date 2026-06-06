@@ -45,7 +45,7 @@ export default function LoginScreen() {
     const result = await registerUser(data);
 
     if (result.success) {
-      router.replace('/verify-pending');
+      router.replace({ pathname: '/verify-pending', params: { email: data.email } });
     } else {
       setError(result.error || 'Registration failed. Please try again.');
     }

@@ -25,6 +25,16 @@ export const changeUserEmail = async (newEmail: string): Promise<void> => {
   if (!response.ok) throw new Error(`Failed to initiate email change (${response.status})`);
 };
 
+export const verifyEmailChange = async (code: string): Promise<void> => {
+  if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+  const response = await fetch(`${BACKEND_URL}/user/verify-email-change`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) throw new Error(`Failed to verify email change (${response.status})`);
+};
+
 export const changeUsername = async (newUsername: string): Promise<void> => {
   if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
   const response = await fetch(`${BACKEND_URL}/user/update-data`, {

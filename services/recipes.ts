@@ -334,12 +334,14 @@ export const deleteRecipe = async (recipeId: string): Promise<void> => {
 
 export const addRecipeToGroup = async (groupId: string, recipeId: string): Promise<void> => {
   if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
-  const response = await fetch(`${BACKEND_URL}/groups/${groupId}/recipes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ recipe_id: recipeId }),
-  });
-  if (!response.ok) throw new Error(`Failed to add recipe to group (${response.status})`);
+  if (!groupId || !recipeId) throw new Error('Faltan el grupo o la receta.');
+  // Both IDs go in the path, no body. POST /groups/{group_id}/recipes/{recipe_id}
+  const response = await fetch(`${BACKEND_URL}/groups/${groupId}/recipes/${recipeId}`, { method: 'POST' });
+  if (!response.ok) {
+    let detail = '';
+    try { detail = await response.text(); } catch { /* ignore */ }
+    throw new Error(`Failed to add recipe to group (${response.status}): ${detail}`);
+  }
 };
 
 export const createGroup = async (name: string, description?: string | null): Promise<{ id: string }> => {
@@ -398,14 +400,22 @@ export const deleteGroup = async (groupId: string): Promise<void> => {
   }
 };
 
-export const getGroupRecipes = async (groupId: string, recipesLimit = 8, offset = 0): Promise<GroupRecipeItem[]> => {
+export type GroupRecipesResponse = {
+  recipes: GroupRecipeItem[];
+  totalItems: number;
+};
+
+export const getGroupRecipes = async (groupId: string, recipesLimit = 8, offset = 0): Promise<GroupRecipesResponse> => {
   if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
 
   const response = await fetch(`${BACKEND_URL}/groups/${groupId}/recipes?recipes_limit=${recipesLimit}&offset=${offset}`);
   if (!response.ok) throw new Error(`Failed to fetch group recipes (${response.status})`);
 
-  const data = (await response.json()) as { recipes: GroupRecipeRawItem[] };
-  return (data.recipes ?? []).map(normalizeGroupRecipeItem);
+  const data = (await response.json()) as { meta?: { totalItems?: number }; recipes?: GroupRecipeRawItem[] };
+  return {
+    recipes: (data.recipes ?? []).map(normalizeGroupRecipeItem),
+    totalItems: data.meta?.totalItems ?? 0,
+  };
 };
 
 export const getRecipeById = async (id: string): Promise<RecipeDetail> => {

@@ -1,10 +1,11 @@
+import { OtpInput } from '@/components/ui/otp-input';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, Divider, Portal, Text, TextInput, useTheme } from 'react-native-paper';
-import { changeUserEmail, changeUsername, deleteUserAccount, getUserProfile, type UserProfile } from '@/services/user';
+import { changeUserEmail, changeUsername, deleteUserAccount, getUserProfile, verifyEmailChange, type UserProfile } from '@/services/user';
 
 type ModalView = 'profile' | 'changeEmail' | 'changeUsername' | 'deleteConfirm';
 
@@ -22,10 +23,13 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
+  // Email change is a 2-step flow: enter new email → enter the 6-digit code → done
+  const [emailStep, setEmailStep] = useState<'email' | 'code' | 'done'>('email');
   const [newEmail, setNewEmail] = useState('');
+  const [emailCode, setEmailCode] = useState('');
   const [isChangingEmail, setIsChangingEmail] = useState(false);
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
   const [changeEmailError, setChangeEmailError] = useState<string | null>(null);
-  const [changeEmailSuccess, setChangeEmailSuccess] = useState(false);
 
   const [newUsername, setNewUsername] = useState('');
   const [isChangingUsername, setIsChangingUsername] = useState(false);
@@ -47,12 +51,17 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
     }
   }, []);
 
+  const resetEmailFlow = () => {
+    setEmailStep('email');
+    setNewEmail('');
+    setEmailCode('');
+    setChangeEmailError(null);
+  };
+
   useEffect(() => {
     if (visible) {
       setView('profile');
-      setNewEmail('');
-      setChangeEmailError(null);
-      setChangeEmailSuccess(false);
+      resetEmailFlow();
       setNewUsername('');
       setChangeUsernameError(null);
       setDeleteError(null);
@@ -62,9 +71,7 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
 
   const handleDismiss = () => {
     setView('profile');
-    setNewEmail('');
-    setChangeEmailError(null);
-    setChangeEmailSuccess(false);
+    resetEmailFlow();
     setNewUsername('');
     setChangeUsernameError(null);
     setDeleteError(null);
@@ -78,11 +85,35 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
     setChangeEmailError(null);
     try {
       await changeUserEmail(email);
-      setChangeEmailSuccess(true);
-    } catch {
-      setChangeEmailError('No se pudo iniciar el cambio de email. Intenta de nuevo.');
+      setEmailCode('');
+      setEmailStep('code');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      setChangeEmailError(
+        msg.includes('409') ? 'Ese email ya está en uso.' : 'No se pudo iniciar el cambio de email. Intenta de nuevo.'
+      );
     } finally {
       setIsChangingEmail(false);
+    }
+  };
+
+  const handleVerifyEmailChange = async () => {
+    if (emailCode.length !== 6) return;
+    setIsVerifyingEmail(true);
+    setChangeEmailError(null);
+    try {
+      await verifyEmailChange(emailCode);
+      await loadProfile();
+      setEmailStep('done');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      setChangeEmailError(
+        msg.includes('400') ? 'Código inválido o expirado.' :
+        msg.includes('409') ? 'Ese email ya está en uso.' :
+        'No se pudo verificar el código. Intenta de nuevo.'
+      );
+    } finally {
+      setIsVerifyingEmail(false);
     }
   };
 
@@ -235,20 +266,10 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
           {/* ── Cambiar email ── */}
           {view === 'changeEmail' && (
             <View style={styles.subView}>
-              {changeEmailSuccess ? (
-                <View style={styles.successBlock}>
-                  <MaterialCommunityIcons name="email-check-outline" size={48} color={theme.colors.primary} />
-                  <Text variant="titleMedium" style={styles.successTitle}>¡Código enviado!</Text>
-                  <Text variant="bodyMedium" style={[styles.mutedText, { textAlign: 'center' }]}>
-                    Enviamos un código de verificación a{'\n'}
-                    <Text style={{ fontWeight: '700' }}>{newEmail.trim()}</Text>.
-                    {'\n'}Revisa tu bandeja de entrada.
-                  </Text>
-                </View>
-              ) : (
+              {emailStep === 'email' && (
                 <>
                   <Text variant="bodyMedium" style={styles.mutedText}>
-                    Introduce tu nuevo email. Te enviaremos un código para confirmar el cambio.
+                    Introduce tu nuevo email. Te enviaremos un código de 6 dígitos para confirmar el cambio.
                   </Text>
                   <TextInput
                     mode="outlined"
@@ -263,6 +284,30 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
                     <Text variant="bodySmall" style={{ color: theme.colors.error }}>{changeEmailError}</Text>
                   ) : null}
                 </>
+              )}
+
+              {emailStep === 'code' && (
+                <>
+                  <Text variant="bodyMedium" style={[styles.mutedText, { textAlign: 'center' }]}>
+                    Enviamos un código de 6 dígitos a{'\n'}
+                    <Text style={{ fontWeight: '700' }}>{newEmail.trim()}</Text>
+                  </Text>
+                  <OtpInput value={emailCode} onChangeText={setEmailCode} size="sm" autoFocus />
+                  {changeEmailError ? (
+                    <Text variant="bodySmall" style={{ color: theme.colors.error, textAlign: 'center' }}>{changeEmailError}</Text>
+                  ) : null}
+                </>
+              )}
+
+              {emailStep === 'done' && (
+                <View style={styles.successBlock}>
+                  <MaterialCommunityIcons name="email-check-outline" size={48} color={theme.colors.primary} />
+                  <Text variant="titleMedium" style={styles.successTitle}>¡Email actualizado!</Text>
+                  <Text variant="bodyMedium" style={[styles.mutedText, { textAlign: 'center' }]}>
+                    Tu correo ahora es{'\n'}
+                    <Text style={{ fontWeight: '700' }}>{newEmail.trim()}</Text>.
+                  </Text>
+                </View>
               )}
             </View>
           )}
@@ -313,15 +358,15 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
             <Button onPress={handleDismiss}>Cerrar</Button>
           )}
 
-          {view === 'changeEmail' && !changeEmailSuccess && (
+          {view === 'changeEmail' && emailStep === 'email' && (
             <Button
-              onPress={() => { setView('profile'); setNewEmail(''); setChangeEmailError(null); }}
+              onPress={() => { setView('profile'); resetEmailFlow(); }}
               disabled={isChangingEmail}
             >
               Volver
             </Button>
           )}
-          {view === 'changeEmail' && !changeEmailSuccess && (
+          {view === 'changeEmail' && emailStep === 'email' && (
             <Button
               mode="contained"
               loading={isChangingEmail}
@@ -332,8 +377,27 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
             </Button>
           )}
 
-          {view === 'changeEmail' && changeEmailSuccess && (
-            <Button onPress={() => { setView('profile'); setNewEmail(''); setChangeEmailSuccess(false); }}>
+          {view === 'changeEmail' && emailStep === 'code' && (
+            <Button
+              onPress={() => { setEmailStep('email'); setEmailCode(''); setChangeEmailError(null); }}
+              disabled={isVerifyingEmail}
+            >
+              Volver
+            </Button>
+          )}
+          {view === 'changeEmail' && emailStep === 'code' && (
+            <Button
+              mode="contained"
+              loading={isVerifyingEmail}
+              disabled={isVerifyingEmail || emailCode.length !== 6}
+              onPress={handleVerifyEmailChange}
+            >
+              Verificar
+            </Button>
+          )}
+
+          {view === 'changeEmail' && emailStep === 'done' && (
+            <Button onPress={() => { setView('profile'); resetEmailFlow(); }}>
               Entendido
             </Button>
           )}
