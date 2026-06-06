@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Searchbar, Text, useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { UserProfileModal } from '@/components/home/user-profile-modal';
@@ -10,10 +10,13 @@ type HomeScreenShellProps = {
   searchPlaceholder: string;
   searchValue?: string;
   onSearchChange?: (text: string) => void;
+  /** Enables pull-to-refresh. When provided, swiping down triggers onRefresh. */
+  refreshing?: boolean;
+  onRefresh?: () => void;
   children: React.ReactNode;
 };
 
-export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, searchValue, onSearchChange, children }: HomeScreenShellProps) => {
+export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, searchValue, onSearchChange, refreshing, onRefresh, children }: HomeScreenShellProps) => {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [isProfileVisible, setIsProfileVisible] = useState(false);
@@ -23,6 +26,16 @@ export const HomeScreenShell = ({ title, subtitle, searchPlaceholder, searchValu
       contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(16, insets.top + 8) }]}
       style={{ backgroundColor: theme.colors.background }}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        onRefresh
+          ? <RefreshControl
+              refreshing={refreshing ?? false}
+              onRefresh={onRefresh}
+              colors={[theme.colors.primary]}
+              tintColor={theme.colors.primary}
+            />
+          : undefined
+      }
     >
       <View style={styles.sceneBackgroundAccent} />
 

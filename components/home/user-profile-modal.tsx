@@ -5,7 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Button, Chip, Dialog, Divider, Portal, Text, TextInput, useTheme } from 'react-native-paper';
-import { changeUserEmail, changeUsername, deleteUserAccount, getUserProfile, verifyEmailChange, type UserProfile } from '@/services/user';
+import { changeUserEmail, changeUsername, deleteUserAccount, getUserProfile, logoutUser, verifyEmailChange, type UserProfile } from '@/services/user';
 
 type ModalView = 'profile' | 'changeEmail' | 'changeUsername' | 'deleteConfirm';
 
@@ -37,6 +37,8 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
 
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const loadProfile = useCallback(async () => {
     setIsLoadingProfile(true);
@@ -151,6 +153,20 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
     }
   };
 
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logoutUser();
+    } catch (err) {
+      // Even if the server call fails, clear the local session so the user can leave.
+      console.error('[logout]', err instanceof Error ? err.message : err);
+    } finally {
+      await SecureStore.deleteItemAsync('has_valid_session');
+      onDismiss();
+      router.replace('/(auth)/login');
+    }
+  };
+
   const titleMap: Record<ModalView, string> = {
     profile: 'Mi perfil',
     changeEmail: 'Cambiar email',
@@ -246,6 +262,17 @@ export const UserProfileModal = ({ visible, onDismiss }: UserProfileModalProps) 
                       contentStyle={styles.actionBtnContent}
                     >
                       Cambiar email
+                    </Button>
+                    <Button
+                      mode="contained-tonal"
+                      icon="logout"
+                      loading={isLoggingOut}
+                      disabled={isLoggingOut}
+                      onPress={handleLogout}
+                      style={styles.actionBtn}
+                      contentStyle={styles.actionBtnContent}
+                    >
+                      Cerrar sesión
                     </Button>
                     <Button
                       mode="outlined"

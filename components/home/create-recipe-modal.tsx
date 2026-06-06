@@ -210,6 +210,7 @@ export const CreateRecipeModal = ({ visible, onDismiss, onSuccess }: CreateRecip
                 onChangeText={setInstructions}
                 multiline
                 numberOfLines={4}
+                maxLength={2000}
                 dense
               />
             </SectionCard>
@@ -224,6 +225,7 @@ export const CreateRecipeModal = ({ visible, onDismiss, onSuccess }: CreateRecip
                     value={row.name}
                     onChangeText={v => updateIngredient(row.id, 'name', v)}
                     style={styles.ingredientName}
+                    maxLength={50}
                     dense
                   />
                   <TextInput
@@ -232,6 +234,7 @@ export const CreateRecipeModal = ({ visible, onDismiss, onSuccess }: CreateRecip
                     value={row.amount}
                     onChangeText={v => updateIngredient(row.id, 'amount', v)}
                     style={styles.ingredientAmount}
+                    maxLength={30}
                     dense
                   />
                   <IconButton icon="minus-circle-outline" size={20} onPress={() => removeIngredient(row.id)} style={styles.removeBtn} />
@@ -249,6 +252,7 @@ export const CreateRecipeModal = ({ visible, onDismiss, onSuccess }: CreateRecip
                 label="Buscar tag o escribir uno nuevo"
                 value={tagQuery}
                 onChangeText={setTagQuery}
+                maxLength={30}
                 dense
                 right={isLoadingTags
                   ? <TextInput.Icon icon={() => <ActivityIndicator size={14} color={theme.colors.primary} />} />

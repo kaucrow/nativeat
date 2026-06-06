@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Button, Dialog, Portal, Text, useTheme } from 'react-native-paper';
 
+import { AddToGroupDialog } from '@/components/home/add-to-group-dialog';
 import { HomeScreenShell } from '@/components/home/home-screen-shell';
 import { SectionHeader } from '@/components/home/section-header';
 import { TaggedRecipeItem } from '@/components/home/tagged-recipe-item';
@@ -21,6 +22,7 @@ export const HistoryScene = () => {
   const [recipes, setRecipes] = useState<LatestRecipeCardData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentOffset, setCurrentOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -29,6 +31,9 @@ export const HistoryScene = () => {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeDetail | null>(null);
+
+  // Add-to-group dialog
+  const [addToGroupRecipe, setAddToGroupRecipe] = useState<{ id: string; name: string } | null>(null);
 
   // Client-side search over the loaded history (the /recipes/history endpoint has no query param)
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,6 +64,22 @@ export const HistoryScene = () => {
 
   useEffect(() => { loadHistory(0, false); }, [loadHistory]);
 
+  // Pull-to-refresh: reloads the history from the start using the RefreshControl spinner
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    setError(null);
+    try {
+      const data = await getRecipeHistory(HISTORY_LIMIT, 0);
+      setRecipes(data);
+      setCurrentOffset(data.length);
+      setHasMore(data.length === HISTORY_LIMIT);
+    } catch {
+      setError('No se pudo cargar el historial.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
   const openRecipeDetail = async (recipeId: string) => {
     setIsDetailVisible(true);
     setIsLoadingDetail(true);
@@ -81,6 +102,8 @@ export const HistoryScene = () => {
       searchPlaceholder="Buscar en historial"
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
+      refreshing={isRefreshing}
+      onRefresh={handleRefresh}
     >
       <SectionHeader
         title={isSearching ? 'Resultados' : 'Vistas recientemente'}
@@ -196,10 +219,28 @@ export const HistoryScene = () => {
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
+            {selectedRecipe && (
+              <Button
+                icon="folder-plus-outline"
+                onPress={() => {
+                  setAddToGroupRecipe({ id: selectedRecipe.id, name: selectedRecipe.name });
+                  setIsDetailVisible(false);
+                }}
+              >
+                Añadir a grupo
+              </Button>
+            )}
             <Button onPress={() => setIsDetailVisible(false)}>Cerrar</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <AddToGroupDialog
+        visible={addToGroupRecipe !== null}
+        recipeId={addToGroupRecipe?.id ?? null}
+        recipeName={addToGroupRecipe?.name}
+        onDismiss={() => setAddToGroupRecipe(null)}
+      />
     </HomeScreenShell>
   );
 };

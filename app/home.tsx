@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { BottomNavigation, Button, Chip, Dialog, IconButton, Portal, Text, useTheme } from 'react-native-paper';
 
+import { AddToGroupDialog } from '@/components/home/add-to-group-dialog';
 import { HistoryScene } from '@/components/home/history-scene';
 import { LibraryScene } from '@/components/home/library-scene';
 import { HomeScreenShell } from '@/components/home/home-screen-shell';
@@ -69,6 +70,9 @@ const ExploreScene = () => {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeDetail | null>(null);
 
+  // Add-to-group dialog
+  const [addToGroupRecipe, setAddToGroupRecipe] = useState<{ id: string; name: string } | null>(null);
+
   // Search
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchRecipeItem[]>([]);
@@ -135,69 +139,69 @@ const ExploreScene = () => {
     return () => clearTimeout(timeout);
   }, [searchQuery, executeSearch]);
 
+  // Loaders extraídos para reusarlos en la carga inicial y en pull-to-refresh.
+  // `silent` omite el spinner de carga (refresh muestra solo el RefreshControl).
+  const loadLatestRecipes = useCallback(async (silent = false) => {
+    if (!silent) setIsLoadingLatest(true);
+    setLatestError(null);
+    try {
+      const recipes = await getLatestRecipes(4);
+      setLatestRecipes(recipes);
+    } catch {
+      setLatestRecipes(exploreSections.recentFallback.map((item, index) => ({
+        id: `fallback-${index}`, title: item.title, creator: item.creator, badge: item.tag,
+      })));
+      setLatestError('No se pudo cargar el backend, mostrando datos de ejemplo.');
+    } finally {
+      if (!silent) setIsLoadingLatest(false);
+    }
+  }, []);
+
+  const loadPopularRecipes = useCallback(async (silent = false) => {
+    if (!silent) setIsLoadingPopular(true);
+    setPopularError(null);
+    try {
+      const recipes = await getPopularRecipes(4);
+      setPopularRecipes(recipes);
+    } catch {
+      setPopularRecipes(exploreSections.viewed.map((item, index) => ({
+        id: `popular-fallback-${index}`, title: item.title, creator: item.creator, badge: item.tag,
+      })));
+      setPopularError('No se pudo cargar recetas populares, mostrando datos de ejemplo.');
+    } finally {
+      if (!silent) setIsLoadingPopular(false);
+    }
+  }, []);
+
+  const loadTopTags = useCallback(async (silent = false) => {
+    if (!silent) setIsLoadingTags(true);
+    setTagsError(null);
+    try {
+      const data = await getTopTags(6, 4);
+      setTopTags(data);
+      const first = Object.keys(data)[0];
+      if (first) setSelectedTag(prev => prev ?? first);
+    } catch {
+      setTagsError('No se pudieron cargar los tags.');
+    } finally {
+      if (!silent) setIsLoadingTags(false);
+    }
+  }, []);
+
   // Carga inicial de explorar
   useEffect(() => {
-    let isMounted = true;
-
-    const loadLatestRecipes = async () => {
-      try {
-        setIsLoadingLatest(true);
-        setLatestError(null);
-        const recipes = await getLatestRecipes(4);
-        if (isMounted) setLatestRecipes(recipes);
-      } catch {
-        if (isMounted) {
-          setLatestRecipes(exploreSections.recentFallback.map((item, index) => ({
-            id: `fallback-${index}`, title: item.title, creator: item.creator, badge: item.tag,
-          })));
-          setLatestError('No se pudo cargar el backend, mostrando datos de ejemplo.');
-        }
-      } finally {
-        if (isMounted) setIsLoadingLatest(false);
-      }
-    };
-
-    const loadPopularRecipes = async () => {
-      try {
-        setIsLoadingPopular(true);
-        setPopularError(null);
-        const recipes = await getPopularRecipes(4);
-        if (isMounted) setPopularRecipes(recipes);
-      } catch {
-        if (isMounted) {
-          setPopularRecipes(exploreSections.viewed.map((item, index) => ({
-            id: `popular-fallback-${index}`, title: item.title, creator: item.creator, badge: item.tag,
-          })));
-          setPopularError('No se pudo cargar recetas populares, mostrando datos de ejemplo.');
-        }
-      } finally {
-        if (isMounted) setIsLoadingPopular(false);
-      }
-    };
-
-    const loadTopTags = async () => {
-      try {
-        setIsLoadingTags(true);
-        setTagsError(null);
-        const data = await getTopTags(6, 4);
-        if (isMounted) {
-          setTopTags(data);
-          const first = Object.keys(data)[0];
-          if (first) setSelectedTag(first);
-        }
-      } catch {
-        if (isMounted) setTagsError('No se pudieron cargar los tags.');
-      } finally {
-        if (isMounted) setIsLoadingTags(false);
-      }
-    };
-
     loadLatestRecipes();
     loadPopularRecipes();
     loadTopTags();
+  }, [loadLatestRecipes, loadPopularRecipes, loadTopTags]);
 
-    return () => { isMounted = false; };
-  }, []);
+  // Pull-to-refresh: recarga las 3 secciones en silencio
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([loadLatestRecipes(true), loadPopularRecipes(true), loadTopTags(true)]);
+    setIsRefreshing(false);
+  }, [loadLatestRecipes, loadPopularRecipes, loadTopTags]);
 
   const handlePageChange = (page: number) => {
     executeSearch(searchQuery.trim(), page, searchSessionId);
@@ -210,6 +214,8 @@ const ExploreScene = () => {
       searchPlaceholder="Buscar recetas o creadores"
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
+      refreshing={isRefreshing}
+      onRefresh={handleRefresh}
     >
       {isSearchActive ? (
         /* ── Vista de búsqueda ── */
@@ -428,10 +434,28 @@ const ExploreScene = () => {
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions>
+            {selectedRecipe && (
+              <Button
+                icon="folder-plus-outline"
+                onPress={() => {
+                  setAddToGroupRecipe({ id: selectedRecipe.id, name: selectedRecipe.name });
+                  setIsDetailVisible(false);
+                }}
+              >
+                Añadir a grupo
+              </Button>
+            )}
             <Button onPress={() => setIsDetailVisible(false)}>Cerrar</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <AddToGroupDialog
+        visible={addToGroupRecipe !== null}
+        recipeId={addToGroupRecipe?.id ?? null}
+        recipeName={addToGroupRecipe?.name}
+        onDismiss={() => setAddToGroupRecipe(null)}
+      />
     </HomeScreenShell>
   );
 };

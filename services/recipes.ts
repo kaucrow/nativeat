@@ -344,6 +344,18 @@ export const addRecipeToGroup = async (groupId: string, recipeId: string): Promi
   }
 };
 
+export const removeRecipeFromGroup = async (groupId: string, recipeId: string): Promise<void> => {
+  if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+  if (!groupId || !recipeId) throw new Error('Faltan el grupo o la receta.');
+  // DELETE /groups/{group_id}/recipes/{recipe_id}
+  const response = await fetch(`${BACKEND_URL}/groups/${groupId}/recipes/${recipeId}`, { method: 'DELETE' });
+  if (!response.ok) {
+    let detail = '';
+    try { detail = await response.text(); } catch { /* ignore */ }
+    throw new Error(`Failed to remove recipe from group (${response.status}): ${detail}`);
+  }
+};
+
 export const createGroup = async (name: string, description?: string | null): Promise<{ id: string }> => {
   if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Button, Chip, Dialog, IconButton, Portal, Text, TextInput, useTheme } from 'react-native-paper';
 
+import { AddToGroupDialog } from '@/components/home/add-to-group-dialog';
 import { CreateRecipeModal } from '@/components/home/create-recipe-modal';
 import { HomeScreenShell } from '@/components/home/home-screen-shell';
 import { RecipePreviewCard } from '@/components/home/recipe-preview-card';
@@ -15,6 +16,7 @@ import {
   getGroupRecipes,
   getGroups,
   getRecipeById,
+  removeRecipeFromGroup,
   type GroupRecipeItem,
   type RecipeDetail,
   type RecipeGroup,
@@ -48,6 +50,16 @@ export const LibraryScene = () => {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeDetail | null>(null);
+  // When the recipe was opened from inside a group, this holds that group so the
+  // detail dialog can offer "Quitar del grupo". Null when opened from "Mis recetas".
+  const [detailGroup, setDetailGroup] = useState<{ id: string; name: string } | null>(null);
+  const [isRemovingFromGroup, setIsRemovingFromGroup] = useState(false);
+  const [removeFromGroupError, setRemoveFromGroupError] = useState<string | null>(null);
+  // True when the open recipe is the user's own (from "Mis recetas"), so it can be deleted
+  const [detailCanDelete, setDetailCanDelete] = useState(false);
+
+  // Add-to-group dialog (reused from Explore/History)
+  const [addToGroupRecipe, setAddToGroupRecipe] = useState<{ id: string; name: string } | null>(null);
 
   // Create group dialog
   const [isCreateGroupVisible, setIsCreateGroupVisible] = useState(false);
@@ -73,14 +85,16 @@ export const LibraryScene = () => {
   const [createdError, setCreatedError] = useState<string | null>(null);
 
   // Delete recipe dialog
-  const [recipeToDelete, setRecipeToDelete] = useState<GroupRecipeItem | null>(null);
+  const [recipeToDelete, setRecipeToDelete] = useState<{ id: string; name: string } | null>(null);
   const [isDeleteRecipeVisible, setIsDeleteRecipeVisible] = useState(false);
   const [isDeletingRecipe, setIsDeletingRecipe] = useState(false);
   const [deleteRecipeError, setDeleteRecipeError] = useState<string | null>(null);
 
   // ── Load groups ────────────────────────────────────────────────────────────
-  const loadGroups = useCallback(async (page: number) => {
-    setIsLoadingGroups(true);
+  // `silent` skips the loading spinner (used by pull-to-refresh, which keeps the
+  // old content visible and shows only the RefreshControl spinner).
+  const loadGroups = useCallback(async (page: number, silent = false) => {
+    if (!silent) setIsLoadingGroups(true);
     setGroupsError(null);
     try {
       const data = await getGroups(GROUPS_PER_PAGE, 4, page * GROUPS_PER_PAGE);
@@ -102,15 +116,15 @@ export const LibraryScene = () => {
     } catch {
       setGroupsError('No se pudieron cargar tus grupos.');
     } finally {
-      setIsLoadingGroups(false);
+      if (!silent) setIsLoadingGroups(false);
     }
   }, []);
 
   useEffect(() => { loadGroups(0); }, [loadGroups]);
 
   // ── Load created recipes ─────────────────────────────────────────────────────
-  const loadCreatedRecipes = useCallback(async (append: boolean) => {
-    if (append) setIsLoadingMoreCreated(true); else setIsLoadingCreated(true);
+  const loadCreatedRecipes = useCallback(async (append: boolean, silent = false) => {
+    if (!silent) { if (append) setIsLoadingMoreCreated(true); else setIsLoadingCreated(true); }
     setCreatedError(null);
     try {
       // When appending, use the current length as offset; otherwise start fresh.
@@ -121,13 +135,21 @@ export const LibraryScene = () => {
     } catch {
       setCreatedError('No se pudieron cargar tus recetas.');
     } finally {
-      if (append) setIsLoadingMoreCreated(false); else setIsLoadingCreated(false);
+      if (!silent) { if (append) setIsLoadingMoreCreated(false); else setIsLoadingCreated(false); }
     }
   }, [createdRecipes.length]);
 
   useEffect(() => { loadCreatedRecipes(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasMoreCreated = createdRecipes.length < createdTotal;
+
+  // Pull-to-refresh: reloads groups + created recipes silently (RefreshControl spinner only)
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([loadGroups(0, true), loadCreatedRecipes(false, true)]);
+    setIsRefreshing(false);
+  }, [loadGroups, loadCreatedRecipes]);
 
   // Client-side search over loaded created recipes (the /recipes/created endpoint has no query param)
   const [searchQuery, setSearchQuery] = useState('');
@@ -142,7 +164,12 @@ export const LibraryScene = () => {
     : createdRecipes;
 
   // ── Recipe detail ──────────────────────────────────────────────────────────
-  const openRecipeDetail = async (recipeId: string) => {
+  // `group` is passed when the recipe is opened from inside a group, enabling
+  // the "Quitar del grupo" action.
+  const openRecipeDetail = async (recipeId: string, group?: { id: string; name: string }, canDelete = false) => {
+    setDetailGroup(group ?? null);
+    setDetailCanDelete(canDelete);
+    setRemoveFromGroupError(null);
     setIsDetailVisible(true);
     setIsLoadingDetail(true);
     setDetailError(null);
@@ -154,6 +181,23 @@ export const LibraryScene = () => {
       setDetailError('No se pudo cargar el detalle de la receta.');
     } finally {
       setIsLoadingDetail(false);
+    }
+  };
+
+  const handleRemoveFromGroup = async () => {
+    if (!selectedRecipe || !detailGroup) return;
+    setIsRemovingFromGroup(true);
+    setRemoveFromGroupError(null);
+    try {
+      await removeRecipeFromGroup(detailGroup.id, selectedRecipe.id);
+      setIsDetailVisible(false);
+      setDetailGroup(null);
+      await loadGroups(groupsPage, true);
+    } catch (err) {
+      console.error('[removeRecipeFromGroup]', err instanceof Error ? err.message : err);
+      setRemoveFromGroupError('No se pudo quitar la receta del grupo. Intenta de nuevo.');
+    } finally {
+      setIsRemovingFromGroup(false);
     }
   };
 
@@ -255,6 +299,8 @@ export const LibraryScene = () => {
       searchPlaceholder="Buscar en mis recetas"
       searchValue={searchQuery}
       onSearchChange={setSearchQuery}
+      refreshing={isRefreshing}
+      onRefresh={handleRefresh}
     >
       {/* Action buttons */}
       <View style={styles.actionRow}>
@@ -337,7 +383,7 @@ export const LibraryScene = () => {
                       thumbnailUrl={recipe.thumbnailUrl ?? undefined}
                       variant="compact"
                       containerStyle={styles.groupCard}
-                      onPress={() => openRecipeDetail(recipe.id)}
+                      onPress={() => openRecipeDetail(recipe.id, { id: group.groupId, name: group.groupName })}
                     />
                   ))}
                 </ScrollView>
@@ -435,16 +481,7 @@ export const LibraryScene = () => {
                   badge={recipe.tags[0] ?? ''}
                   thumbnailUrl={recipe.thumbnailUrl ?? undefined}
                   variant="compact"
-                  onPress={() => openRecipeDetail(recipe.id)}
-                />
-                <IconButton
-                  icon="delete"
-                  size={16}
-                  mode="contained"
-                  iconColor={theme.colors.onError}
-                  containerColor={theme.colors.error}
-                  onPress={() => { setRecipeToDelete(recipe); setIsDeleteRecipeVisible(true); }}
-                  style={styles.deleteRecipeBtn}
+                  onPress={() => openRecipeDetail(recipe.id, undefined, true)}
                 />
               </View>
             ))}
@@ -625,7 +662,10 @@ export const LibraryScene = () => {
                       thumbnailUrl={recipe.thumbnailUrl}
                       onPress={() => {
                         setIsGroupDialogVisible(false);
-                        openRecipeDetail(recipe.id);
+                        openRecipeDetail(
+                          recipe.id,
+                          expandedGroup ? { id: expandedGroup.groupId, name: expandedGroup.groupName } : undefined
+                        );
                       }}
                     />
                   ))}
@@ -701,12 +741,67 @@ export const LibraryScene = () => {
                 </>
               ) : null}
             </ScrollView>
+            {removeFromGroupError ? (
+              <Text variant="bodySmall" style={{ color: theme.colors.error, marginTop: 8 }}>
+                {removeFromGroupError}
+              </Text>
+            ) : null}
           </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setIsDetailVisible(false)}>Cerrar</Button>
+          <Dialog.Actions style={styles.detailActions}>
+            {selectedRecipe && (
+              <Button
+                icon="folder-plus-outline"
+                compact
+                disabled={isRemovingFromGroup}
+                onPress={() => {
+                  setAddToGroupRecipe({ id: selectedRecipe.id, name: selectedRecipe.name });
+                  setIsDetailVisible(false);
+                }}
+              >
+                Añadir
+              </Button>
+            )}
+            {detailGroup && selectedRecipe && (
+              <Button
+                icon="folder-remove-outline"
+                compact
+                textColor={theme.colors.error}
+                loading={isRemovingFromGroup}
+                disabled={isRemovingFromGroup}
+                onPress={handleRemoveFromGroup}
+              >
+                Quitar
+              </Button>
+            )}
+            {detailCanDelete && selectedRecipe && (
+              <Button
+                icon="delete-outline"
+                compact
+                textColor={theme.colors.error}
+                onPress={() => {
+                  setRecipeToDelete({ id: selectedRecipe.id, name: selectedRecipe.name });
+                  setIsDeleteRecipeVisible(true);
+                  setIsDetailVisible(false);
+                }}
+              >
+                Eliminar
+              </Button>
+            )}
+            <Button compact onPress={() => setIsDetailVisible(false)} disabled={isRemovingFromGroup}>Cerrar</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <AddToGroupDialog
+        visible={addToGroupRecipe !== null}
+        recipeId={addToGroupRecipe?.id ?? null}
+        recipeName={addToGroupRecipe?.name}
+        onDismiss={() => {
+          setAddToGroupRecipe(null);
+          // Reflect the new membership when returning to the library
+          loadGroups(groupsPage, true);
+        }}
+      />
     </HomeScreenShell>
   );
 };
@@ -737,7 +832,6 @@ const styles = StyleSheet.create({
   // Created recipes grid
   createdGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   createdGridItem: { width: '48%', marginBottom: 12 },
-  deleteRecipeBtn: { position: 'absolute', bottom: 6, right: 6, margin: 0 },
   loadMoreBtn: { borderRadius: 18, alignSelf: 'center', marginTop: 4 },
   // Pagination
   paginationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 4 },
@@ -747,6 +841,8 @@ const styles = StyleSheet.create({
   dialog: { borderRadius: 20 },
   deleteContent: { gap: 4 },
   createGroupContent: { gap: 14 },
+  // Wrap to a second row instead of squashing when 3 actions don't fit
+  detailActions: { flexWrap: 'wrap' },
   createGroupSubmit: { borderRadius: 12 },
   taggedList: { gap: 12 },
   // Recipe detail

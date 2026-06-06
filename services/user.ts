@@ -54,3 +54,9 @@ export const deleteUserAccount = async (): Promise<void> => {
   const response = await fetch(`${BACKEND_URL}/user`, { method: 'DELETE' });
   if (!response.ok) throw new Error(`Failed to delete account (${response.status})`);
 };
+
+export const logoutUser = async (): Promise<void> => {
+  if (!BACKEND_URL) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+  const response = await fetch(`${BACKEND_URL}/auth/logout`, { method: 'POST' });
+  if (!response.ok) throw new Error(`Failed to logout (${response.status})`);
+};
